@@ -8,70 +8,110 @@
 # define num_funcionarios 1
 # define num_vagas 3
 
-pthread_mutex_t funcionario = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-sem_t vagas;
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex2 = PTHREAD_MUTEX_INITIALIZER;
+
+sem_t disponivel;
+sem_t ocupado;
+sem_t vagas;
 int vagas_ocupadas = 0;
 
-void* cliente_lavando_carro(void *arg){
+
+int sair(){
+	pthread_exit(NULL);
+}
+
+
+void* funcionario_lavacar(void *arg){
+	int id = *(int *)arg;
+		
+	for(int i; i < num_clientes; i++){
+		// seção critica
+		sem_wait(&disponivel);
+		pthread_mutex_lock(&mutex);
+	
+		printf("funcionario %ld esta disponivel para atendimentos.\n", id);
+		
+		pthread_mutex_unlock(&mutex);
+		sem_post(&ocupado);
+		//seção critica
+	}
+	printf("turno do funcionario acabou.\n");
+	sair();
+	
+}
+
+void* cliente_lavacar(void *arg){
 	int id = *(int *)arg;
 	
-	if (vagas_ocupadas > 2){
-		printf("o carro %ld tentou entrar na vaga, mas estava cheio...\n");
-		pthread_exit(NULL);
+	
+	pthread_mutex_lock(&mutex2);
+	
+	vagas_ocupadas += 1;
+	
+	if (vagas_ocupadas > num_vagas){
+		vagas_ocupadas -= 1;
+		printf("cliente %ld desistiu, pois nao ha vagas.\n", id);
+		pthread_mutex_unlock(&mutex2);
+		sair();
+	} else {
+		printf("cliente %ld entrou em uma vaga.\n", id);
 	}
 	
+	pthread_mutex_unlock(&mutex2);
 	
 	sem_wait(&vagas);
-	if (vagas_ocupadas < num_vagas){
-		pthread_mutex_lock(&mutex);
-		vagas_ocupadas += 1;
-		printf("o carro %ld está esperando na vaga  ", id);
-		printf("(vagas = %ld)\n", vagas_ocupadas);
-		pthread_mutex_unlock(&mutex);
-		
-	}
 	
-	pthread_mutex_lock(&funcionario);
-	// sec crit
-	printf("carro %ld está sendo atendido pelo funcionario\n", id);
-	sleep(4);
-	printf("carro %ld foi atendido e está de saida...\n", id);
-	// sec crit
-	pthread_mutex_unlock(&funcionario);
 	
-	if (vagas_ocupadas > 0){
-		pthread_mutex_lock(&mutex);
-		vagas_ocupadas -= 1;
-		printf("o carro %ld saindo da vaga  ", id);
-		printf("(vagas = %ld)\n", vagas_ocupadas);
-		pthread_mutex_unlock(&mutex);
+	//seção critica
+	sem_wait(&ocupado);
+	pthread_mutex_lock(&mutex);
+	
+	printf("cliente %ld vai ser atendido.\n", id);
+	sleep(2);
+	
+	pthread_mutex_unlock(&mutex);
+	sem_post(&disponivel);
+	// seção critica
 	
 	sem_post(&vagas);
 	
-	pthread_exit(NULL);
-	}
+	pthread_mutex_lock(&mutex2);
+	
+	vagas_ocupadas -= 1;
+	printf("cliente %ld foi atendido e esta saindo.\n", id);
+	
+	pthread_mutex_unlock(&mutex2);
+	
+	
+	sair();
 }
-
 
 
 int main(){
 	pthread_t tcliente[num_clientes]; int c_ids[num_clientes];
 	sem_init(&vagas, 0, num_vagas);
+	sem_init(&disponivel, 0, 1);
+	sem_init(&ocupado, 0, 1);
+	
+	
+	pthread_t tfuncionario; int f_id = 0;
+	pthread_create(&tfuncionario, NULL, funcionario_lavacar, &f_id);
 	
 	for (int i = 0; i < num_clientes; i++){
 		c_ids[i] = i;
-		pthread_create(&tcliente[i], NULL, cliente_lavando_carro, &c_ids[i]);
+		pthread_create(&tcliente[i], NULL, cliente_lavacar, &c_ids[i]);
 		sleep(2);
 	}
 	
 	for (int i  = 0; i < num_clientes; i++){
-	
-	pthread_join(tcliente[i], NULL);
-	sem_destroy(&vagas);
-		
+		pthread_join(tcliente[i], NULL);
+		sem_destroy(&vagas);
+		sem_destroy(&disponivel);
+		sem_destroy(&ocupado);
 	}
 	
+	pthread_join(tfuncionario, NULL);
 	return 0;
 }
